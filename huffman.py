@@ -1,4 +1,5 @@
 import heapq
+import struct
 from typing import Dict, Tuple, Optional
 
 
@@ -257,3 +258,217 @@ class HuffmanTree:
         print(f"Visualisierung gespeichert als: {filename}.pdf")
 
         return dot
+
+    def _serialize_tree(self) -> str:
+        """
+        Serialisiert den Baum als Bitstring (Pre-Order Traversierung).
+
+        Format:
+        - Innerer Knoten: '0' + rekursiv left + right
+        - Blattknoten: '1' + 8-Bit Byte-Wert
+
+        Returns:
+            Bitstring-Repräsentation des Baums
+        """
+        def serialize_node(node: Optional[Node]) -> str:
+            if node is None:
+                return ''
+
+            if node.is_leaf():
+                # '1' + 8 Bit für Byte-Wert
+                return '1' + format(node.byte_value, '08b')
+            else:
+                # '0' + rekursiv left und right
+                return '0' + serialize_node(node.left) + serialize_node(node.right)
+
+        return serialize_node(self.root)
+
+    def _deserialize_tree(self, bitstring: str, pos: int = 0) -> Tuple[Optional[Node], int]:
+        """
+        Deserialisiert einen Baum aus einem Bitstring.
+
+        Args:
+            bitstring: Serialisierter Baum als Bitstring
+            pos: Aktuelle Position im Bitstring
+
+        Returns:
+            Tupel (Node, neue_position)
+        """
+        if pos >= len(bitstring):
+            return None, pos
+
+        if bitstring[pos] == '1':
+            # Blattknoten: nächste 8 Bits sind der Byte-Wert
+            byte_value = int(bitstring[pos+1:pos+9], 2)
+            return Node(0, byte_value), pos + 9
+        else:
+            # Innerer Knoten: '0' + left + right
+            left, pos = self._deserialize_tree(bitstring, pos + 1)
+            right, pos = self._deserialize_tree(bitstring, pos)
+            return Node(0, left=left, right=right), pos
+
+    @staticmethod
+    def _bitstring_to_bytes(bitstring: str) -> bytes:
+        """
+        Konvertiert einen Bitstring in Bytes (mit Padding).
+
+        Args:
+            bitstring: String aus '0' und '1'
+
+        Returns:
+            Bytes-Repräsentation
+        """
+        # Padding auf nächstes 8er-Vielfaches
+        padding = (8 - len(bitstring) % 8) % 8
+        bitstring_padded = bitstring + '0' * padding
+
+        # In 8er-Gruppen aufteilen und zu Bytes konvertieren
+        byte_array = []
+        for i in range(0, len(bitstring_padded), 8):
+            byte = int(bitstring_padded[i:i+8], 2)
+            byte_array.append(byte)
+
+        return bytes(byte_array)
+
+    @staticmethod
+    def _bytes_to_bitstring(data: bytes, num_bits: int) -> str:
+        """
+        Konvertiert Bytes in einen Bitstring mit gegebener Länge.
+
+        Args:
+            data: Byte-Daten
+            num_bits: Anzahl gültiger Bits
+
+        Returns:
+            Bitstring
+        """
+        bitstring = ''.join(format(byte, '08b') for byte in data)
+        return bitstring[:num_bits]
+
+    def compress(self, data: bytes) -> bytes:
+        """
+        Komprimiert Byte-Daten mit Huffman-Codierung.
+
+        Format:
+        [HEADER: 4 bytes] - "HUF\x01"
+        [TREE_SIZE: 4 bytes] - Länge der Baum-Daten (uint32, big-endian)
+        [TREE_DATA: variable] - Serialisierter Baum
+        [DATA_BITS: 4 bytes] - Anzahl gültiger Bits (uint32, big-endian)
+        [DATA: variable] - Codierte Daten
+
+        Args:
+            data: Zu komprimierende Byte-Daten
+
+        Returns:
+            Komprimierte Daten als Bytes
+        """
+        if not data:
+            raise ValueError("Daten dürfen nicht leer sein")
+
+        # Baum erstellen
+        self.build_from_bytes(data)
+
+        # Daten encodieren
+        encoded_bitstring = self.encode_bytes(data)
+
+        # Baum serialisieren
+        tree_bitstring = self._serialize_tree()
+        tree_bytes = self._bitstring_to_bytes(tree_bitstring)
+
+        # Codierte Daten zu Bytes konvertieren
+        data_bytes = self._bitstring_to_bytes(encoded_bitstring)
+
+        # Header zusammenbauen
+        header = b'HUF\x01'
+        tree_size = struct.pack('>I', len(tree_bytes))
+        data_bits = struct.pack('>I', len(encoded_bitstring))
+
+        return header + tree_size + tree_bytes + data_bits + data_bytes
+
+    @staticmethod
+    def decompress(compressed_data: bytes) -> bytes:
+        """
+        Dekomprimiert Huffman-codierte Daten.
+
+        Args:
+            compressed_data: Komprimierte Daten
+
+        Returns:
+            Dekomprimierte Byte-Daten
+        """
+        if len(compressed_data) < 16:
+            raise ValueError("Ungültige komprimierte Daten (zu kurz)")
+
+        # Header validieren
+        header = compressed_data[0:4]
+        if header != b'HUF\x01':
+            raise ValueError(f"Ungültiger Header: {header}")
+
+        # Baum-Größe lesen
+        tree_size = struct.unpack('>I', compressed_data[4:8])[0]
+
+        # Baum-Daten extrahieren
+        tree_end = 8 + tree_size
+        if tree_end > len(compressed_data):
+            raise ValueError("Ungültige Baum-Größe")
+
+        tree_bytes = compressed_data[8:tree_end]
+
+        # Daten-Bits-Länge lesen
+        data_bits = struct.unpack('>I', compressed_data[tree_end:tree_end+4])[0]
+
+        # Codierte Daten extrahieren
+        data_bytes = compressed_data[tree_end+4:]
+
+        # Baum deserialisieren
+        tree_bitstring = HuffmanTree._bytes_to_bitstring(tree_bytes, len(tree_bytes) * 8)
+        tree = HuffmanTree()
+        tree.root, _ = tree._deserialize_tree(tree_bitstring)
+        tree.current_node = tree.root
+        tree._build_code_table()
+
+        # Daten decodieren
+        data_bitstring = HuffmanTree._bytes_to_bitstring(data_bytes, data_bits)
+        decoded_data = tree.decode_bytes(data_bitstring)
+
+        return decoded_data
+
+    @staticmethod
+    def compress_file(input_file: str, output_file: str) -> None:
+        """
+        Komprimiert eine Datei.
+
+        Args:
+            input_file: Pfad zur Eingabedatei
+            output_file: Pfad zur Ausgabedatei
+        """
+        with open(input_file, 'rb') as f:
+            data = f.read()
+
+        tree = HuffmanTree()
+        compressed = tree.compress(data)
+
+        with open(output_file, 'wb') as f:
+            f.write(compressed)
+
+        print(f"Komprimiert: {len(data)} -> {len(compressed)} Bytes")
+        print(f"Kompressionsrate: {len(compressed) / len(data) * 100:.2f}%")
+
+    @staticmethod
+    def decompress_file(input_file: str, output_file: str) -> None:
+        """
+        Dekomprimiert eine Datei.
+
+        Args:
+            input_file: Pfad zur komprimierten Datei
+            output_file: Pfad zur Ausgabedatei
+        """
+        with open(input_file, 'rb') as f:
+            compressed = f.read()
+
+        decompressed = HuffmanTree.decompress(compressed)
+
+        with open(output_file, 'wb') as f:
+            f.write(decompressed)
+
+        print(f"Dekomprimiert: {len(compressed)} -> {len(decompressed)} Bytes")
