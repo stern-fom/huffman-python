@@ -5,9 +5,9 @@ from typing import Dict, Tuple, Optional
 class Node:
     """Repräsentiert einen Knoten im Huffman-Baum."""
 
-    def __init__(self, freq: int, char: Optional[str] = None, left: Optional['Node'] = None, right: Optional['Node'] = None):
+    def __init__(self, freq: int, byte_value: Optional[int] = None, left: Optional['Node'] = None, right: Optional['Node'] = None):
         self.freq = freq
-        self.char = char
+        self.byte_value = byte_value
         self.left = left
         self.right = right
 
@@ -21,32 +21,32 @@ class Node:
 
 
 class HuffmanTree:
-    """Huffman-Baum mit Encoding- und Decoding-Funktionalität."""
+    """Huffman-Baum mit Encoding- und Decoding-Funktionalität für Bytes."""
 
     def __init__(self):
         self.root: Optional[Node] = None
-        self.code_table: Dict[str, str] = {}
+        self.code_table: Dict[int, str] = {}
         self.current_node: Optional[Node] = None
 
-    def build_from_frequencies(self, freq_dict: Dict[str, int]) -> None:
+    def build_from_frequencies(self, freq_dict: Dict[int, int]) -> None:
         """
         Baut den Huffman-Baum aus einem Häufigkeiten-Dictionary auf.
 
         Args:
-            freq_dict: Dictionary mit Zeichen als Keys und Häufigkeiten als Values
+            freq_dict: Dictionary mit Byte-Werten (0-255) als Keys und Häufigkeiten als Values
         """
         if not freq_dict:
             raise ValueError("Häufigkeiten-Dictionary darf nicht leer sein")
 
         if len(freq_dict) == 1:
-            char = list(freq_dict.keys())[0]
-            freq = freq_dict[char]
-            self.root = Node(freq, char)
-            self.code_table = {char: "0"}
+            byte_value = list(freq_dict.keys())[0]
+            freq = freq_dict[byte_value]
+            self.root = Node(freq, byte_value)
+            self.code_table = {byte_value: "0"}
             self.current_node = self.root
             return
 
-        priority_queue = [Node(freq, char) for char, freq in freq_dict.items()]
+        priority_queue = [Node(freq, byte_value) for byte_value, freq in freq_dict.items()]
         heapq.heapify(priority_queue)
 
         while len(priority_queue) > 1:
@@ -60,19 +60,19 @@ class HuffmanTree:
         self.current_node = self.root
         self._build_code_table()
 
-    def build_from_text(self, text: str) -> None:
+    def build_from_bytes(self, data: bytes) -> None:
         """
-        Berechnet Häufigkeiten aus einem Text und baut den Baum auf.
+        Berechnet Häufigkeiten aus Byte-Daten und baut den Baum auf.
 
         Args:
-            text: Text, aus dem die Häufigkeiten berechnet werden
+            data: Byte-Daten, aus denen die Häufigkeiten berechnet werden
         """
-        if not text:
-            raise ValueError("Text darf nicht leer sein")
+        if not data:
+            raise ValueError("Byte-Daten dürfen nicht leer sein")
 
         freq_dict = {}
-        for char in text:
-            freq_dict[char] = freq_dict.get(char, 0) + 1
+        for byte_value in data:
+            freq_dict[byte_value] = freq_dict.get(byte_value, 0) + 1
 
         self.build_from_frequencies(freq_dict)
 
@@ -85,44 +85,44 @@ class HuffmanTree:
                 return
 
             if node.is_leaf():
-                self.code_table[node.char] = code if code else "0"
+                self.code_table[node.byte_value] = code if code else "0"
             else:
                 traverse(node.left, code + "0")
                 traverse(node.right, code + "1")
 
         traverse(self.root, "")
 
-    def encode(self, char: str) -> str:
+    def encode(self, byte_value: int) -> str:
         """
-        Encodiert ein Zeichen zu einem Bitstring.
+        Encodiert ein Byte zu einem Bitstring.
 
         Args:
-            char: Zu encodierendes Zeichen
+            byte_value: Zu encodierendes Byte (0-255)
 
         Returns:
             Bitstring als String (z.B. "1011")
 
         Raises:
-            ValueError: Wenn das Zeichen nicht im Baum vorhanden ist
+            ValueError: Wenn das Byte nicht im Baum vorhanden ist
         """
-        if char not in self.code_table:
-            raise ValueError(f"Zeichen '{char}' ist nicht im Huffman-Baum enthalten")
+        if byte_value not in self.code_table:
+            raise ValueError(f"Byte {byte_value} ist nicht im Huffman-Baum enthalten")
 
-        return self.code_table[char]
+        return self.code_table[byte_value]
 
-    def encode_text(self, text: str) -> str:
+    def encode_bytes(self, data: bytes) -> str:
         """
-        Encodiert einen ganzen Text zu einem Bitstring.
+        Encodiert Byte-Daten zu einem Bitstring.
 
         Args:
-            text: Zu encodierender Text
+            data: Zu encodierende Byte-Daten
 
         Returns:
             Bitstring als String
         """
-        return ''.join(self.encode(char) for char in text)
+        return ''.join(self.encode(byte_value) for byte_value in data)
 
-    def decode(self, bit: str) -> Tuple[bool, Optional[str]]:
+    def decode(self, bit: str) -> Tuple[bool, Optional[int]]:
         """
         Decodiert ein einzelnes Bit. Stateful - wandert durch den Baum.
 
@@ -130,9 +130,9 @@ class HuffmanTree:
             bit: Ein einzelnes Bit als String ('0' oder '1')
 
         Returns:
-            Tupel (ok, char):
-            - ok=False, char=None: Noch kein Blatt erreicht
-            - ok=True, char=Zeichen: Blatt erreicht, Decoder wurde zurückgesetzt
+            Tupel (ok, byte_value):
+            - ok=False, byte_value=None: Noch kein Blatt erreicht
+            - ok=True, byte_value=Byte-Wert: Blatt erreicht, Decoder wurde zurückgesetzt
 
         Raises:
             ValueError: Wenn bit nicht '0' oder '1' ist oder Baum nicht initialisiert
@@ -147,8 +147,8 @@ class HuffmanTree:
             self.current_node = self.root
 
         if self.root.is_leaf():
-            char = self.root.char
-            return (True, char)
+            byte_value = self.root.byte_value
+            return (True, byte_value)
 
         if bit == '0':
             self.current_node = self.current_node.left
@@ -156,49 +156,49 @@ class HuffmanTree:
             self.current_node = self.current_node.right
 
         if self.current_node.is_leaf():
-            char = self.current_node.char
+            byte_value = self.current_node.byte_value
             self.current_node = self.root
-            return (True, char)
+            return (True, byte_value)
 
         return (False, None)
 
-    def decode_text(self, bitstring: str) -> str:
+    def decode_bytes(self, bitstring: str) -> bytes:
         """
-        Decodiert einen Bitstring zu einem Text.
+        Decodiert einen Bitstring zu Byte-Daten.
 
         Args:
             bitstring: Bitstring als String (z.B. "10110011")
 
         Returns:
-            Decodierter Text
+            Decodierte Byte-Daten
         """
         self.reset_decoder()
         result = []
 
         for bit in bitstring:
-            ok, char = self.decode(bit)
+            ok, byte_value = self.decode(bit)
             if ok:
-                result.append(char)
+                result.append(byte_value)
 
-        return ''.join(result)
+        return bytes(result)
 
     def reset_decoder(self) -> None:
         """Setzt den Decoder-Zustand zurück zur Wurzel."""
         self.current_node = self.root
 
-    def get_code_table(self) -> Dict[str, str]:
+    def get_code_table(self) -> Dict[int, str]:
         """
         Gibt die Code-Tabelle zurück.
 
         Returns:
-            Dictionary mit Zeichen als Keys und Bitstrings als Values
+            Dictionary mit Byte-Werten als Keys und Bitstrings als Values
         """
         return self.code_table.copy()
 
     def print_code_table(self) -> None:
         """Gibt die Code-Tabelle formatiert aus."""
         print("Huffman-Code-Tabelle:")
-        print("-" * 30)
-        for char, code in sorted(self.code_table.items()):
-            display_char = repr(char) if char in ('\n', '\t', ' ') else char
-            print(f"{display_char:5s} -> {code}")
+        print("-" * 40)
+        for byte_value, code in sorted(self.code_table.items()):
+            char = chr(byte_value) if 32 <= byte_value <= 126 else '?'
+            print(f"Byte {byte_value:3d} ('{char}') -> {code}")
