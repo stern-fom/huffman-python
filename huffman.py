@@ -52,6 +52,8 @@ class HuffmanTree:
         while len(priority_queue) > 1:
             left = heapq.heappop(priority_queue)
             right = heapq.heappop(priority_queue)
+            if right.freq < left.freq:
+                left, right = right, left
 
             parent = Node(left.freq + right.freq, left=left, right=right)
             heapq.heappush(priority_queue, parent)
